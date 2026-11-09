@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Converse</title>
+<style>
+  :root { --bg:#f6f6f4; --ink:#1d1f1e; --muted:#5d625f; --line:#d7d9d5; --panel:#fff; --accent:#1c6b57; --on-accent:#fff; --warn:#a33b2c; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#141615; --ink:#e8eae7; --muted:#9aa09b; --line:#2c302e; --panel:#1b1d1c; --accent:#58b79c; --on-accent:#10211c; --warn:#e48a7a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 20px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  input { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); min-width:0; flex:1 1 160px; }
+  button { font:inherit; padding:8px 16px; border:1px solid var(--accent); border-radius:6px; background:var(--accent); color:var(--on-accent); cursor:pointer; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  button[data-on="true"] { background:var(--panel); color:var(--accent); }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  #state { color:var(--muted); margin-bottom:12px; min-height:1.5em; }
+  #state.error { color:var(--warn); }
+  ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  li { padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+  li.you { border-left:4px solid var(--accent); }
+  li.bot { border-left:4px solid var(--muted); }
+  li small { display:block; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Converse</h1>
+  <p class="lead">Talk, and interrupt whenever you like. Use headphones if the reply is picked up by the microphone.</p>
+  <div class="row">
+    <label for="name" class="sr">Your name</label>
+    <input id="name" value="browser" maxlength="64" autocomplete="off">
+    <button id="toggle" type="button" data-on="false">Start</button>
+  </div>
+  <div id="state" role="status" aria-live="polite">Not connected.</div>
+  <ol id="log" aria-label="Conversation"></ol>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const toggle = $("toggle"), stateEl = $("state"), log = $("log");
+let ws = null, mic = null, ctx = null, node = null, playRate = 24000, playAt = 0, playing = [];
+
+const WORKLET = `
+class Frames extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Int16Array(480); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) {
+      this.buf[this.n++] = Math.max(-1, Math.min(1, ch[i])) * 32767;
+      if (this.n === 480) { this.port.postMessage(this.buf.slice().buffer); this.n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor("frames", Frames);`;
+
+function say(text, isError) { stateEl.textContent = text; stateEl.classList.toggle("error", !!isError); }
+function line(who, text) {
+  const li = document.createElement("li");
+  li.className = who;
+  const label = document.createElement("small");
+  label.textContent = who === "you" ? "You" : "Converse";
+  li.append(label, document.createTextNode(text));
+  log.append(li);
+  li.scrollIntoView({ block: "nearest" });
+}
+function flush() { for (const s of playing) { try { s.stop(); } catch (e) { /* already ended */ } } playing = []; playAt = 0; }
+
+function play(buffer) {
+  const pcm = new Int16Array(buffer.slice(0, buffer.byteLength - (buffer.byteLength % 2)));
+  const audio = ctx.createBuffer(1, pcm.length, playRate);
+  const data = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) data[i] = pcm[i] / 32768;
+  const source = ctx.createBufferSource();
+  source.buffer = audio;
+  source.connect(ctx.destination);
+  playAt = Math.max(playAt, ctx.currentTime + 0.05);
+  source.start(playAt);
+  playAt += audio.duration;
+  playing.push(source);
+  source.onended = () => { playing = playing.filter((s) => s !== source); };
+}
+
+async function start() {
+  const name = $("name").value.trim() || "browser";
+  say("Asking for the microphone...");
+  mic = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  ctx = new AudioContext({ sampleRate: 16000 });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  node = new AudioWorkletNode(ctx, "frames");
+  ctx.createMediaStreamSource(mic).connect(node);
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${scheme}://${location.host}/api/converse?username=${encodeURIComponent(name)}`);
+  ws.binaryType = "arraybuffer";
+  node.port.onmessage = (event) => { if (ws.readyState === WebSocket.OPEN) ws.send(event.data); };
+  ws.onmessage = (event) => {
+    if (typeof event.data !== "string") { play(event.data); return; }
+    const m = JSON.parse(event.data);
+    if (m.type === "ready") say("Listening. Speak when you like.");
+    else if (m.type === "speech_start") { flush(); say("Hearing you..."); }
+    else if (m.type === "transcript") { line("you", m.text); say("Thinking..."); }
+    else if (m.type === "reply_text") { line("bot", m.text); say("Speaking. Talk to interrupt."); }
+    else if (m.type === "audio") playRate = m.rate;
+    else if (m.type === "interrupted") { flush(); say("Interrupted."); }
+    else if (m.type === "turn_end") say("Listening.");
+    else if (m.type === "error") say(m.message, true);
+  };
+  ws.onclose = (event) => { stop(event.code === 1008 || event.code === 1013 ? "The service refused the session (a token is needed, or it is full)." : "Stopped."); };
+  toggle.textContent = "Stop";
+  toggle.dataset.on = "true";
+}
+
+function stop(message) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  ws = null;
+  flush();
+  if (mic) mic.getTracks().forEach((t) => t.stop());
+  if (ctx) ctx.close();
+  mic = ctx = node = null;
+  toggle.textContent = "Start";
+  toggle.dataset.on = "false";
+  say(message || "Stopped.");
+}
+
+toggle.addEventListener("click", () => {
+  if (ws) stop();
+  else start().catch(() => stop("The microphone is not available."));
+});
+</script>
+</body>
+</html>
