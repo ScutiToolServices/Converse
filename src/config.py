@@ -31,6 +31,9 @@ class Settings:
     history_turns: int = 8
     cleanup: bool = False  # clean what the user said through STC_S1Mini_Model before the chat model sees it
     cleanup_styling: str = "semi-formal"  # casual, semi-casual, semi-formal or formal
+    # Main-voice gate: needs data_dir/voice/speaker.onnx and main.npy (tools/enroll_voice.py); off without them.
+    voice_gate: bool = False
+    voice_gate_threshold: float = 0.4
     vad_threshold: float = 0.015  # level (0 to 1 of full scale) a 30 ms frame needs to count as voice
     end_silence_ms: int = 700  # this much silence after speech ends the user's turn
     min_speech_ms: int = 240  # shorter speech is a click or cough: it neither starts a turn nor interrupts the bot
@@ -49,6 +52,10 @@ class Settings:
         return self.config_dir or self.data_dir
 
     @property
+    def voice_dir(self) -> Path:
+        return self.data_dir / "voice"
+
+    @property
     def exposed_without_auth(self) -> bool:
         """Listening beyond loopback with no admin password means no tokens, so anything that can reach the port could use the models."""
         return not self.admin_password.strip() and self.host not in LOOPBACK_HOSTS
@@ -60,6 +67,8 @@ def _from_environment() -> Settings:
         host=env("SERVICE_HOST", "127.0.0.1"),
         port=int(env("SERVICE_PORT", "29405")),
         data_dir=Path(env("SERVICE_DATA_DIR") or PROJECT_DIR / ".data"),
+        voice_gate=env("SERVICE_VOICE_GATE", "").strip().lower() in ("1", "true", "yes", "on"),
+        voice_gate_threshold=float(env("SERVICE_VOICE_GATE_THRESHOLD", "0.4")),
         admin_password=env("SERVICE_ADMIN_PASSWORD", ""),
     )
 

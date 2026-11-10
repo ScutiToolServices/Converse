@@ -10,6 +10,7 @@ call (a getter), so a change on the admin page applies to the next turn."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from typing import Protocol
@@ -41,8 +42,10 @@ def _headers(token: str) -> dict[str, str]:
 
 
 class RoutedPipeline:
-    def __init__(self, stt: Slot, cnv: Slot, tts: Slot, settings, s1mini: Slot = lambda: None) -> None:
+    def __init__(self, stt: Slot, cnv: Slot, tts: Slot, settings, s1mini: Slot = lambda: None,
+                 prefilter: Callable[[], Callable[[bytes], bytes] | None] | None = None) -> None:
         self._stt, self._cnv, self._tts, self._settings, self._s1mini = stt, cnv, tts, settings, s1mini
+        self._prefilter = prefilter or (lambda: None)  # read per call; None = off (e.g. no voiceprint enrolled)
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self._settings.timeout_s)  # one per call, closed by the caller's `async with`
@@ -56,6 +59,12 @@ class RoutedPipeline:
 
     async def transcribe(self, pcm: bytes) -> str:
         url, token = self._slot(self._stt, "speech-to-text")
+        keep_main_voice = self._prefilter()
+        if keep_main_voice is not None:
+            try:
+                pcm = await asyncio.to_thread(keep_main_voice, pcm)
+            except Exception:  # a broken gate must not break the turn: send the audio as it was
+                pass
         try:
             async with self._client() as http:
                 reply = await http.post(url + "/v1/transcribe", params={"language": "en", "word_timestamps": "false"},

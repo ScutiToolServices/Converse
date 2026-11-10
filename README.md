@@ -41,6 +41,8 @@ A plain publish (`run.bat`, Deploy, option 1) only updates the `live` branch, so
 
 ## Admin page
 
+Main-voice gate (optional): silences other voices (TV, people nearby) before the audio goes to speech to text. `uv sync --extra voice`, put the same WeSpeaker-style ONNX speaker model Scribe uses at `<data folder>/voice/speaker.onnx`, run `python tools/enroll_voice.py clean_speech.wav` (10-30 s of the main voice alone), then turn on `SERVICE_VOICE_GATE` (or "Keep only the main voice" on the admin page). `SERVICE_VOICE_GATE_THRESHOLD=0.4` is the match needed (0-1). Without the extra, the model file or the voiceprint it does nothing. If no segment matches, the audio is sent as it was.
+
 With `SERVICE_ADMIN_PASSWORD` set, open `/admin/` and sign in. The shared sidebar has **Overview**, **Playground**, **Access tokens**, **Model connections**, **Runtime & settings**, **Usage** and **Connect & API**. The Playground has no operations here, because a conversation needs a live microphone: use `/talk/`.
 
 ## Tests

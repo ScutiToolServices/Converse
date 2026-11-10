@@ -9,7 +9,7 @@ from src.runtime import Config, LiveSettings, Setting
 # attribute of Settings -> (setting key, conversion to the attribute's unit); every key is its attribute's own name
 FIELDS = {name: (name, convert) for name, convert in {
     "system_prompt": str, "temperature": float, "max_tokens": int, "voice": str, "tts_speed": float,
-    "history_turns": int, "cleanup": bool, "cleanup_styling": str, "vad_threshold": float, "end_silence_ms": int, "min_speech_ms": int,
+    "history_turns": int, "cleanup": bool, "cleanup_styling": str, "voice_gate": bool, "voice_gate_threshold": float, "vad_threshold": float, "end_silence_ms": int, "min_speech_ms": int,
     "max_utterance_s": int, "session_max_s": int, "idle_s": float, "timeout_s": int,
 }.items()}
 
@@ -28,6 +28,10 @@ def schema(base: Settings) -> list[Setting]:
                 help="Runs each transcript through the STC_S1Mini_Model service (filler words, punctuation, casing) before the chat model gets it. Needs the s1mini connection; without it, or if it fails, the raw transcript is used."),
         Setting("cleanup_styling", "Cleanup tone", "text", base.cleanup_styling, blank=False,
                 help="casual, semi-casual, semi-formal or formal. Anything else makes the cleanup service refuse, so the raw transcript is used."),
+        Setting("voice_gate", "Keep only the main voice", "bool", base.voice_gate,
+                help="Silences other voices before transcribing, so the TV or people nearby are not answered. Needs the speaker model and an enrolled voice in the data folder's voice/ (tools/enroll_voice.py); without them it does nothing."),
+        Setting("voice_gate_threshold", "Main-voice match (0-1)", "float", base.voice_gate_threshold, minimum=0.05, maximum=0.95,
+                help="Higher drops more of other voices but may drop the main voice. Tune on real recordings."),
         Setting("vad_threshold", "Voice level", "float", base.vad_threshold, minimum=0.001, maximum=0.5,
                 help="Loudness (0 to 1) a 30 ms slice needs to count as speech. Raise it in a noisy room."),
         Setting("end_silence_ms", "Silence that ends a turn (ms)", "int", base.end_silence_ms, minimum=200, maximum=3000),
