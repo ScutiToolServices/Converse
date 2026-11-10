@@ -63,5 +63,35 @@ async def test_pipeline_runs_prefilter_before_stt():
     slot = lambda: ("http://stt", "")
     audio, silent = bytes([1, 1, 1, 1]), bytes(2)
     assert await Pipeline(slot, slot, slot, settings).transcribe(audio) == "hello"
-    assert await Pipeline(slot, slot, slot, settings, prefilter=lambda: (lambda pcm: silent)).transcribe(audio) == "hello"
+    assert await Pipeline(slot, slot, slot, settings, prefilter=lambda force=None: (lambda pcm: silent)).transcribe(audio) == "hello"
     assert posted == [audio, silent]
+
+
+async def test_pipeline_forces_gate_per_call():
+    import httpx
+    from types import SimpleNamespace
+    from src.clients import RoutedPipeline
+
+    posted = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posted.append(request.content)
+        return httpx.Response(200, json={"text": "ok"})
+
+    class Pipeline(RoutedPipeline):
+        def _client(self):
+            return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    slot = lambda: ("http://stt", "")
+    silent, audio = bytes(2), bytes([1, 1, 1, 1])
+    # setting is off: only an explicit True builds the filter
+    pipeline = Pipeline(slot, slot, slot, SimpleNamespace(cleanup=False, timeout_s=5),
+                        prefilter=lambda force=None: (lambda pcm: silent) if force else None)
+    for gate in (None, True, False):
+        await pipeline.transcribe(audio, voice_gate=gate)
+    assert posted == [audio, silent, audio]
+
+
+def test_voice_gate_query_flag():
+    from src.app import flag
+    assert [flag(v) for v in (None, "", "true", "1", "OFF", "false", "maybe")] == [None, None, True, True, False, False, "bad"]

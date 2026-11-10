@@ -26,7 +26,8 @@ WAV_HEADER_BYTES = 44  # TTS_Piper_Model streams a plain 44-byte RIFF header wit
 class Pipeline(Protocol):
     """What a session needs from the models. `app.py` builds `RoutedPipeline`; tests build fakes."""
 
-    async def transcribe(self, pcm: bytes) -> str: ...
+    async def transcribe(self, pcm: bytes, voice_gate: bool | None = None) -> str:
+        """`voice_gate` True/False forces the main-voice gate on/off for this call; None follows the setting."""
 
     def chat(self, messages: list[dict[str, str]]) -> AsyncIterator[str]: ...
 
@@ -43,9 +44,11 @@ def _headers(token: str) -> dict[str, str]:
 
 class RoutedPipeline:
     def __init__(self, stt: Slot, cnv: Slot, tts: Slot, settings, s1mini: Slot = lambda: None,
-                 prefilter: Callable[[], Callable[[bytes], bytes] | None] | None = None) -> None:
+                 prefilter: Callable[[bool | None], Callable[[bytes], bytes] | None] | None = None) -> None:
         self._stt, self._cnv, self._tts, self._settings, self._s1mini = stt, cnv, tts, settings, s1mini
-        self._prefilter = prefilter or (lambda: None)  # read per call; None = off (e.g. no voiceprint enrolled)
+        # Called per turn with True/False (the session's choice) or None (follow the setting). Returns the filter, or None when
+        # the gate is off or not set up (no voiceprint enrolled, extra not installed).
+        self._prefilter = prefilter or (lambda force=None: None)
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self._settings.timeout_s)  # one per call, closed by the caller's `async with`
@@ -57,9 +60,9 @@ class RoutedPipeline:
             raise NotConnected(f"No {what} service is connected. Save a connection on the Converse admin page.")
         return found
 
-    async def transcribe(self, pcm: bytes) -> str:
+    async def transcribe(self, pcm: bytes, voice_gate: bool | None = None) -> str:
         url, token = self._slot(self._stt, "speech-to-text")
-        keep_main_voice = self._prefilter()
+        keep_main_voice = None if voice_gate is False else self._prefilter(voice_gate)
         if keep_main_voice is not None:
             try:
                 pcm = await asyncio.to_thread(keep_main_voice, pcm)

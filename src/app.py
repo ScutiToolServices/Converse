@@ -61,6 +61,13 @@ class SessionLimit:
         self._open -= 1
 
 
+def flag(value: str | None):
+    """?voice_gate=: True/False for true/false (also 1/0, on/off), None when absent, "bad" for anything else."""
+    if value is None or value == "":
+        return None
+    return {"true": True, "1": True, "on": True, "false": False, "0": False, "off": False}.get(value.lower(), "bad")
+
+
 def voice_prefilter(voice_dir, threshold):
     """The main-voice gate, or None when the optional "voice" extra (numpy, onnxruntime) is not installed."""
     try:
@@ -79,7 +86,8 @@ def build_app(settings: Settings, pipeline: Pipeline | None = None, config: Conf
     tokens = TokenStore(base.state_dir / "tokens.json", "converse_")
     usage = Usage()
     pipeline = pipeline or RoutedPipeline(lambda: backends.get("stt"), lambda: backends.get("cnv"), lambda: backends.get("tts"), settings, lambda: backends.get("s1mini"),
-        prefilter=lambda: voice_prefilter(base.voice_dir, settings.voice_gate_threshold) if settings.voice_gate else None)
+        prefilter=lambda force=None: voice_prefilter(base.voice_dir, settings.voice_gate_threshold)
+        if (settings.voice_gate if force is None else force) else None)
     limit = SessionLimit(settings.max_sessions)
     mcp = FastMCP(name="converse", instructions=INSTRUCTIONS, host=settings.host, port=settings.port)
 
@@ -90,14 +98,15 @@ def build_app(settings: Settings, pipeline: Pipeline | None = None, config: Conf
     async def converse(websocket: WebSocket) -> None:
         # A browser cannot set headers on a WebSocket, so the page sends the name as ?username=.
         owner = (websocket.headers.get("x-requester-username") or websocket.query_params.get("username", "")).strip()[:64]
-        if not owner:
+        voice_gate = flag(websocket.query_params.get("voice_gate"))  # ?voice_gate=true|false for this conversation
+        if not owner or voice_gate == "bad":
             await websocket.close(code=1008)
             return
         await websocket.accept()
         if not limit.acquire():
             await websocket.close(code=1013)  # after accept, so a proxy can see why
             return
-        session = Session(pipeline, EnergyVad(lambda: settings.vad_threshold), settings, websocket.send_json, websocket.send_bytes)
+        session = Session(pipeline, EnergyVad(lambda: settings.vad_threshold), settings, websocket.send_json, websocket.send_bytes, voice_gate)
         deadline = time.monotonic() + settings.session_max_s
         try:
             async with usage.track(owner, "conversation"):

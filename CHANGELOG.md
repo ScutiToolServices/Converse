@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Main-voice gate on or off per conversation
+
+`/api/converse` takes `?voice_gate=true|false`. Omitted follows the service setting; a bad value closes the socket (1008).
+
 ### Main-voice gate (optional)
 
 Silences speech that does not sound like an enrolled voice before the PCM goes to speech to text, so the TV or people nearby are not answered. Same `src/voicegate.py` as Scribe. Off by default: needs `uv sync --extra voice`, a WeSpeaker-style ONNX speaker model at `<data>/voice/speaker.onnx` and a voiceprint from `tools/enroll_voice.py`. Admin settings `voice_gate` and `voice_gate_threshold` (env `SERVICE_VOICE_GATE`, `SERVICE_VOICE_GATE_THRESHOLD`). Fails open: with no matching segment the audio is sent unchanged.

@@ -52,8 +52,9 @@ class Session:
     """`send_json` and `send_bytes` deliver to the client; `feed` takes the client's PCM. All three run on one event loop."""
 
     def __init__(self, pipeline: Pipeline, vad: Vad, settings, send_json: Callable[[dict], Awaitable[None]],
-                 send_bytes: Callable[[bytes], Awaitable[None]]) -> None:
+                 send_bytes: Callable[[bytes], Awaitable[None]], voice_gate: bool | None = None) -> None:
         self._pipeline, self._vad, self._settings = pipeline, vad, settings
+        self._voice_gate = voice_gate  # True/False from the connection's ?voice_gate=, None = follow the setting
         self._json, self._bytes = send_json, send_bytes
         self._pending = bytearray()  # input that is not yet a whole 30 ms frame
         self._pre: deque[bytes] = deque(maxlen=PRE_ROLL_FRAMES)
@@ -128,7 +129,7 @@ class Session:
         question, spoken = "", []
         producer: asyncio.Task | None = None
         try:
-            question = await asyncio.wait_for(self._pipeline.transcribe(pcm), self._settings.timeout_s)
+            question = await asyncio.wait_for((self._pipeline.transcribe(pcm) if self._voice_gate is None else self._pipeline.transcribe(pcm, voice_gate=self._voice_gate)), self._settings.timeout_s)
             if not question:
                 return
             await self._json({"type": "transcript", "text": question})
