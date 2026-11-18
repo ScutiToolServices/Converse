@@ -1,0 +1,33 @@
+# Converse live voice conversation service.
+# Start:  docker compose up -d --build        (reach it at ws://converse:29405/api/converse)
+# Needs a .env next to this file with SERVICE_ADMIN_PASSWORD; create the callers' tokens on /admin/. See .env.example.
+# Then save a connection to an STT, a CNV and a TTS model service on /admin/.
+
+name: converse
+
+services:
+  converse:
+    build: .
+    restart: unless-stopped
+    environment:
+      SERVICE_ADMIN_PASSWORD: ${SERVICE_ADMIN_PASSWORD:?set SERVICE_ADMIN_PASSWORD in .env (it unlocks the token page)}
+    ports:
+      - "${SERVICE_BIND:-0.0.0.0}:${SERVICE_PORT:-29405}:29405"
+    volumes:
+      - converse_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:29405/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+    networks: [citadel]
+
+volumes:
+  converse_data:
+
+networks:
+  # Join the Citadel stack's network so other services can reach http://converse:29405. Start the Citadel stack first:
+  # it creates this network.
+  citadel:
+    name: citadel_core
+    external: true
