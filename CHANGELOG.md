@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Copy works on plain http and inside a frame
+
+The Copy buttons for a new token and for the addresses now fall back to a hidden text box when the browser refuses the clipboard API (plain http pages, framed pages such as ServiceHub). It is the same fallback the model services already had.
+
 ### Main-voice gate on or off per conversation
 
 `/api/converse` takes `?voice_gate=true|false`. Omitted follows the service setting; a bad value closes the socket (1008).
