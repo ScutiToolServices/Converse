@@ -45,7 +45,7 @@ Main-voice gate (optional): silences other voices (TV, people nearby) before the
 
 Main-voice gate per conversation: connect with `?voice_gate=true` or `?voice_gate=false` on `/api/converse` (a browser can add it to the URL). Omitted follows the `voice_gate` setting; a value other than true/false/1/0/on/off closes the socket with 1008.
 
-With `SERVICE_ADMIN_PASSWORD` set, open `/admin/` and sign in. The shared sidebar has **Overview**, **Playground**, **Access tokens**, **Model connections**, **Runtime & settings**, **Usage** and **Connect & API**. The Playground has no operations here, because a conversation needs a live microphone: use `/talk/`.
+With `SERVICE_ADMIN_PASSWORD` set, open `/admin/` and sign in. The service tabs include **Overview**, **Playground**, **Access tokens**, **Model connections**, **Runtime & settings**, **Usage** and **Connections**. The Playground has no operations here, because a conversation needs a live microphone: use `/talk/`.
 
 ## Tests
 
